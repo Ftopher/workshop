@@ -533,6 +533,727 @@
             listContainer.innerHTML = html;
         }
 
+        // 禁止浏览器在单页视图切换时自动恢复历史滚动位置。
+        if ('scrollRestoration' in history) {
+            history.scrollRestoration = 'manual';
+        }
+
+        function resetPageScroll() {
+            window.scrollTo({ top: 0, left: 0, behavior: 'auto' });
+            document.documentElement.scrollTop = 0;
+            document.body.scrollTop = 0;
+        }
+
+        // 已经废弃了 JS 计算坐标，直接依靠更强大的 CSS Sticky 渲染，使得打开和滚动更丝滑
+        function openDetail(id) {
+            const project = projects.find(p => p.id === id);
+            if (!project) return;
+
+            // 详情页大图：彻底去除圆角、阴影和描边，恢复绝对的直角，并加入美观的默认占位图 fallback
+            const heroWrapper = document.getElementById('detail-hero');
+            
+            // 三个有完整切图的项目都按配置渲染为连续详情长页。
+            if (id === 1 || detailImageSets[id]) {
+                const images = id === 1 ? [
+                    'pj1/1.jpg',
+                    'pj1/2.jpg',
+                    'pj1/3.jpg',
+                    'pj1/4.jpg',
+                    'pj1/5.jpg',
+                    'pj1/6.jpg',
+                    'pj1/7.jpg',
+                    'pj1/8.jpg',
+                    'pj1/9.jpg',
+                    'pj1/10.jpg',
+                    'pj1/11.jpg',
+                    'pj1/12.jpg',
+                    'pj1/13.jpg',
+                    'pj1/14.jpg'
+                ] : detailImageSets[id];
+                
+                let imgHtml = '';
+                images.forEach(img => {
+                    imgHtml += `<img src="./${img}" class="erp-detail-img w-full h-auto bg-[#E8E5DF] block" alt="${img}" loading="lazy">`;
+                });
+                heroWrapper.className = 'w-full mb-10 flex flex-col items-center justify-center';
+                heroWrapper.innerHTML = imgHtml;
+                
+            } else {
+                // 其他详情页暂且保留原本的单图逻辑
+                heroWrapper.className = 'w-full mb-10 flex items-center justify-center';
+                heroWrapper.innerHTML = `<img src="./row${project.id}-1.png" onerror="this.onerror=null;this.src='https://placehold.co/1200x750/E8E5DF/8C857B?text=Project+Preview'" class="w-full aspect-[16/10] object-cover bg-[#E8E5DF] block" alt="Project Preview">`;
+            }
+            
+            document.getElementById('detail-title').innerText = project.title;
+            document.getElementById('detail-date').innerText = project.date;
+
+            const homeView = document.getElementById('view-home');
+            const detailView = document.getElementById('view-detail');
+            const backLayer = document.getElementById('detail-back-layer');
+            
+            resetPageScroll();
+            
+            // [修复核心3] 首页淡出，并在 400ms 动画结束后彻底把 DOM 隐藏 (display: none) 防止残影
+            homeView.classList.remove('view-visible');
+            homeView.classList.add('view-hidden');
+            setTimeout(() => {
+                homeView.style.display = 'none';
+            }, 400); 
+            
+            // 显示返回按钮的固定层
+            backLayer.style.visibility = 'visible';
+
+            // 详情页解除 DOM 隐藏，再触发淡入
+            detailView.style.display = 'block';
+            setTimeout(() => {
+                detailView.classList.remove('view-hidden');
+                detailView.classList.add('view-visible');
+                
+                // 返回按钮渐显
+                backLayer.classList.remove('opacity-0');
+                backLayer.classList.add('opacity-100');
+            }, 50);
+        }
+
+        function closeDetail() {
+            const homeView = document.getElementById('view-home');
+            const detailView = document.getElementById('view-detail');
+            const backLayer = document.getElementById('detail-back-layer');
+            
+            resetPageScroll();
+
+            // 先立即移除详情页布局，避免旧详情内容暂时撑高页面，导致滚动条先小后大
+            detailView.classList.remove('view-visible');
+            detailView.classList.add('view-hidden');
+            detailView.style.display = 'none';
+
+            // 返回按钮直接隐藏，避免过渡期间继续占用视觉层
+            backLayer.classList.remove('opacity-100');
+            backLayer.classList.add('opacity-0');
+            backLayer.style.visibility = 'hidden';
+            
+            // 首页立即解除隐藏并完成淡入，避免等待造成短暂空白或闪烁
+            homeView.style.display = 'block';
+            homeView.classList.remove('view-hidden');
+            homeView.classList.add('view-visible');
+            resetPageScroll();
+            requestAnimationFrame(resetPageScroll);
+        }
+
+        renderList();
+
+        function copyToClipboard(element) {
+            const text = element.getAttribute('data-copy');
+            const textArea = document.createElement("textarea");
+            textArea.value = text;
+            textArea.style.position = "absolute";
+            textArea.style.left = "-999999px";
+            document.body.appendChild(textArea);
+            textArea.select();
+            
+            try {
+                document.execCommand('copy');
+                showToast();
+            } catch (err) {
+                console.error('复制失败', err);
+            }
+            
+            document.body.removeChild(textArea);
+        }
+
+        let toastTimeout;
+        function showToast() {
+            const toast = document.getElementById('copy-toast');
+            if(!toast) return;
+            
+            clearTimeout(toastTimeout);
+            toast.classList.remove('opacity-0', 'translate-y-4');
+            toast.classList.add('opacity-100', 'translate-y-0');
+            
+            toastTimeout = setTimeout(() => {
+                toast.classList.remove('opacity-100', 'translate-y-0');
+                toast.classList.add('opacity-0', 'translate-y-4');
+            }, 2000);
+        }
+
+        // =========================================
+        // 加载动画严格受控时序逻辑
+        // =========================================
+        window.addEventListener('DOMContentLoaded', () => {
+            const loader = document.getElementById('page-loader');
+            const app = document.getElementById('app');
+
+            document.fonts.ready.then(() => {
+                loader.classList.add('start-anim');
+
+                setTimeout(() => {
+                    loader.classList.add('-translate-y-full');
+
+                    app.classList.remove('opacity-0', 'translate-y-12');
+                    app.classList.add('translate-y-0');
+
+                    setTimeout(() => {
+                        loader.style.display = 'none';
+                    }, 600);
+                }, 1500);
+            });
+        });
+
+        // =========================================
+        // 自定义鼠标跟随逻辑
+        // =========================================
+        const customCursor = document.getElementById('custom-cursor');
+        if (window.matchMedia("(pointer: fine)").matches) {
+            document.addEventListener('mousemove', (e) => {
+                customCursor.style.left = e.clientX + 'px';
+                customCursor.style.top = e.clientY + 'px';
+                
+                const target = e.target;
+                if (target.closest('a') || target.closest('button') || target.closest('.cursor-pointer') || target.closest('[data-copy]')) {
+                    customCursor.classList.add('hovering');
+                } else {
+                    customCursor.classList.remove('hovering'); 
+                }
+            });
+        }
+    </script>
+</body>
+</html>
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Topher | Product Designer</title>
+    
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- 严格的 JSON 格式，确保 Tailwind 自定义配置生效 -->
+    <script type="tailwind-config">
+        {
+            "theme": {
+                "extend": {
+                    "fontFamily": {
+                        "caveat": ["'CaveatLocal'", "Caveat", "cursive"],
+                        "sans": ["'InterLocal'", "Inter", "sans-serif"]
+                    },
+                    "colors": {
+                        "garden": {
+                            "bg": "#FAF7F5",       
+                            "text": "#4A453F",     
+                            "border": "#E8E5DF",   
+                            "accent": "#8C857B"    
+                        }
+                    }
+                }
+            }
+        }
+    </script>
+
+    <style>
+        /* -----------------------------------------
+           [新增] 本地字体优先读取逻辑
+           如果同文件夹下有字体文件，瞬间加载，不依赖外部网络
+           ----------------------------------------- */
+        @font-face {
+            font-family: 'CaveatLocal';
+            src: url('./fonts/Caveat-Regular.ttf') format('truetype');
+            font-weight: 400;
+            font-style: normal;
+            font-display: swap;
+        }
+
+        @font-face {
+            font-family: 'CaveatLocal';
+            src: url('./fonts/Caveat-Bold.ttf') format('truetype');
+            font-weight: 700;
+            font-style: normal;
+            font-display: swap;
+        }
+
+        @font-face {
+            font-family: 'InterLocal';
+            src: url('./fonts/Inter.ttf') format('truetype');
+            font-weight: 100 900;
+            font-style: normal;
+            font-display: swap;
+        }
+
+        /* -----------------------------------------
+           0. 双重保险：原生 CSS Fallback 兜底
+           ----------------------------------------- */
+        .font-caveat { font-family: 'CaveatLocal', 'Caveat', cursive !important; }
+        .font-sans { font-family: 'InterLocal', 'Inter', Arial, sans-serif !important; }
+        .text-garden-text { color: #4A453F !important; }
+        .text-garden-accent { color: #8C857B !important; }
+        .bg-garden-bg { background-color: #FAF7F5 !important; }
+        .border-garden-border { border-color: #E8E5DF !important; }
+
+        body {
+            background-color: #FAF7F5;
+            color: #4A453F;
+            /* [关键修复] 将 hidden 改为 clip，防止其破坏内部元素的 sticky 粘性定位 */
+            overflow-x: clip; 
+            -webkit-font-smoothing: antialiased;
+        }
+
+        /* -----------------------------------------
+           1. 物理质感：纯代码渲染手工纸张纹理 (Handmade Paper Texture)
+           ----------------------------------------- */
+        .physical-texture-noise {
+            position: fixed;
+            inset: 0;
+            pointer-events: none;
+            z-index: 9999998; 
+            opacity: 0.12;
+            mix-blend-mode: color-burn; 
+            background-image: 
+                url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.8' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)'/%3E%3C/svg%3E"),
+                url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='pulp'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.015' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23pulp)'/%3E%3C/svg%3E");
+            background-size: 200px 200px, 400px 400px;
+        }
+
+        /* -----------------------------------------
+           2. 全局悬浮模糊聚焦交互 (Global Focus Blur Hover)
+           ----------------------------------------- */
+        .portfolio-list {
+            position: relative;
+        }
+        
+        .blur-target, .project-row {
+            transition: opacity 0.4s ease, filter 0.4s ease;
+        }
+        
+        /* 当任何一行作品被悬浮时，所有带有 blur-target 类的全局元素，以及非悬浮的作品行都会变模糊并降低透明度 */
+        body:has(.project-row:hover) .blur-target,
+        body:has(.project-row:hover) .project-row:not(:hover) {
+            opacity: 0.25;
+            filter: blur(4px);
+        }
+        
+        /* 确保被悬浮的行保持完全清晰，并处于最上层 */
+        .project-row:hover {
+            opacity: 1;
+            filter: blur(0px);
+            z-index: 50;
+        }
+
+        /* -----------------------------------------
+           3. 拍立得三层真实图片堆叠与跃出动画 (Polaroid Pop)
+           ----------------------------------------- */
+        .polaroid-stack {
+            position: relative;
+            transition: transform 0.5s cubic-bezier(0.34, 1.56, 0.64, 1);
+            transform: rotate(-3deg);
+        }
+        
+        /* 每一层卡片的通用基础样式 - 已经去除了底部宽白边，四边留白均匀 */
+        .polaroid-stack .card-1,
+        .polaroid-stack .card-2,
+        .polaroid-stack .card-3 {
+            position: absolute;
+            inset: -1px;
+            background: #fafafa;
+            border: 2px solid white;
+            box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1), 0 2px 4px -1px rgba(0,0,0,0.06);
+            transition: all 0.5s cubic-bezier(0.34, 1.56, 0.64, 1);
+            border-radius: 2px;
+            transform-origin: center center;
+            overflow: hidden;
+        }
+
+        /* 第1层 (最前面) */
+        .polaroid-stack .card-1 { 
+            z-index: 10; 
+            transform: translate(0, 0) rotate(0deg); 
+        }
+        /* 第2层 (中间，默认左偏) */
+        .polaroid-stack .card-2 { 
+            z-index: -1; 
+            transform: translate(0, 0) rotate(-8deg); 
+        }
+        /* 第3层 (最后面，默认右偏) */
+        .polaroid-stack .card-3 { 
+            z-index: -2; 
+            transform: translate(0, 0) rotate(5deg); 
+        }
+
+        /* 悬浮时，容器仅整体缩放与位移 */
+        .project-row:hover .polaroid-stack {
+            z-index: 50;
+            transform: scale(1.25) translate(-10px, -4px);
+        }
+        
+        /* 悬浮时，最前面的卡片增加主投影 */
+        .project-row:hover .polaroid-stack .card-1 {
+            box-shadow: 0 15px 25px -5px rgba(0,0,0,0.15);
+            border-color: white; 
+        }
+
+        /* ====================================================
+           效果一：精准复刻【图一】(奇数行：第1、3行)
+           - 扇面张开 (左侧卡2向左偏，右侧卡3向右偏，主卡1在中间稍微逆时针)
+           ==================================================== */
+        .project-row:hover .stack-style-1 .card-1 {
+            transform: translate(0px, 0px) rotate(-2deg);
+        }
+        .project-row:hover .stack-style-1 .card-2 { 
+            transform: translate(-26px, -6px) rotate(-22deg); 
+        }
+        .project-row:hover .stack-style-1 .card-3 { 
+            transform: translate(26px, -6px) rotate(18deg); 
+        }
+
+        /* ====================================================
+           效果二：精准复刻【图二】(偶数行：第2、4行)
+           - 错落散开 (主卡1在右下，中间卡2在右上，最底卡3在左上)
+           ==================================================== */
+        .project-row:hover .stack-style-2 .card-1 {
+            transform: translate(6px, 10px) rotate(-4deg);
+        }
+        .project-row:hover .stack-style-2 .card-2 { 
+            transform: translate(20px, -18px) rotate(8deg); 
+        }
+        .project-row:hover .stack-style-2 .card-3 { 
+            transform: translate(-26px, -8px) rotate(-16deg); 
+        }
+
+        /* -----------------------------------------
+           4. 视图切换过渡动画 (View Transitions)
+           ----------------------------------------- */
+        .view-container {
+            transition: opacity 0.4s ease, transform 0.4s ease;
+        }
+        .view-hidden {
+            opacity: 0;
+            pointer-events: none;
+            position: absolute;
+            top: 0;
+            left: 0;
+            /* [修复核心1] 增加 right:0 和强制 margin auto，防止转为绝对定位时跳跃到最左侧 */
+            right: 0;
+            margin-left: auto;
+            margin-right: auto;
+            width: 100%;
+            visibility: hidden;
+            transform: translateY(10px);
+        }
+        .view-visible {
+            opacity: 1;
+            pointer-events: auto;
+            position: relative;
+            visibility: visible;
+            transform: translateY(0);
+        }
+
+        /* 详情页返回按钮：窄屏保持在容器内，宽屏再悬浮到左侧外 */
+        .detail-back-btn {
+            top: 12px;
+            left: 0;
+        }
+        @media (min-width: 768px) {
+            .detail-back-btn {
+                top: 96px;
+            }
+        }
+        @media (min-width: 1320px) {
+            .detail-back-btn {
+                left: -24px;
+            }
+        }
+        @media (min-width: 1400px) {
+            .detail-back-btn {
+                left: -48px;
+            }
+        }
+
+        /* -----------------------------------------
+           5. 自定义数字花园鼠标光标 (Custom Cursor)
+           ----------------------------------------- */
+        #custom-cursor {
+            display: none; 
+            position: fixed;
+            top: 0; left: 0;
+            width: 12px; height: 12px;
+            background-color: #D99481; 
+            border: none; 
+            border-radius: 50%;
+            filter: blur(3.5px); 
+            transform: translate(-50%, -50%);
+            pointer-events: none;
+            z-index: 9999999;
+            transition: width 0.2s ease, height 0.2s ease, background-color 0.2s ease, border 0.2s ease, filter 0.2s ease;
+        }
+        @media (pointer: fine) {
+            body, a, button, .cursor-pointer {
+                cursor: none !important;
+            }
+            #custom-cursor {
+                display: block;
+            }
+        }
+        #custom-cursor.hovering {
+            width: 36px; height: 36px;
+            background-color: rgba(217, 148, 129, 0.14); 
+            border: 1.5px solid #D99481; 
+            filter: blur(0px); 
+        }
+
+        /* -----------------------------------------
+           6. 加载动画交错入场 (Staggered Intro)
+           ----------------------------------------- */
+        @keyframes stagger-pop-in {
+            0% { opacity: 0; transform: translateY(15px) scale(0.95); }
+            100% { opacity: 1; transform: translateY(0) scale(1); }
+        }
+        .stagger-item {
+            opacity: 0; 
+            transform: translateY(15px) scale(0.95); 
+        }
+        .start-anim .stagger-item {
+            animation: stagger-pop-in 0.6s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
+        }
+        .start-anim .stagger-1 { animation-delay: 0.1s; }
+        .start-anim .stagger-2 { animation-delay: 0.3s; }
+        .start-anim .stagger-3 { animation-delay: 0.5s; }
+
+        /* -----------------------------------------
+           7. 渐变分割线 (Gradient Divider)
+           ----------------------------------------- */
+        .gradient-border-b {
+            border-bottom: 1px solid;
+            border-image: linear-gradient(to right, rgba(232, 229, 223, 0.6) 0%, rgba(232, 229, 223, 0.2) 80%, transparent 100%) 1;
+        }
+            #detail-hero > img { width: 1220px; max-width: 100%; }
+    </style>
+</head>
+<body>
+
+    <!-- 自定义鼠标跟随元素 -->
+    <div id="custom-cursor"></div>
+
+    <!-- 物理质感噪点层 (模拟纸张/胶片颗粒) -->
+    <div class="physical-texture-noise"></div>
+
+    <!-- 进场加载动画 (Loader) -->
+    <div id="page-loader" class="fixed inset-0 z-[999999] bg-garden-bg flex items-center justify-center transition-transform duration-[600ms] ease-[cubic-bezier(0.76,0,0.24,1)]">
+        <div class="flex items-center text-4xl md:text-5xl font-sans font-medium tracking-tight space-x-3">
+            <span class="stagger-item stagger-1 text-[#43332C]">Hi, I'm</span>
+            
+            <div class="stagger-item stagger-2 w-[72px] h-[44px] bg-[#3b352c] rounded-full flex items-center justify-center shadow-sm">
+                <svg class="w-6 h-6 text-white animate-[spin_1.5s_linear_infinite]" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                </svg>
+            </div>
+            
+            <span class="stagger-item stagger-3 font-caveat text-5xl md:text-6xl font-semibold text-[#E15A33] pl-1">Topher</span>
+        </div>
+    </div>
+
+    <!-- 真实视频树影斑驳 (Video Physical Light & Shadow) -->
+    <div class="fixed top-0 left-0 w-[900px] h-[800px] pointer-events-none z-0" 
+         style="-webkit-mask-image: radial-gradient(circle at 15% 25%, black 25%, transparent 80%); mask-image: radial-gradient(circle at 15% 25%, black 25%, transparent 80%);">
+        <video 
+            src="https://theme-switch.pages.dev/assets/leaves.mp4" 
+            autoplay loop muted playsinline 
+            class="absolute top-[-60%] left-[-5%] w-full h-auto max-w-none opacity-40 mix-blend-multiply"
+            style="filter: contrast(1.15);"
+        ></video>
+    </div>
+
+    <!-- [新增] 纯固定悬浮层：彻底脱离应用主体的滚动与动画，绝对固定在屏幕左侧 -->
+    <div id="detail-back-layer" class="fixed inset-0 pointer-events-none z-[100] opacity-0 transition-opacity duration-300" style="visibility: hidden;">
+        <!-- 使用与详情页完全一致的容器限制边界，图片宽度 1220px -->
+        <div class="max-w-[1268px] mx-auto h-full relative px-6">
+            <button onclick="closeDetail()" aria-label="返回" 
+                    class="detail-back-btn pointer-events-auto absolute w-[40px] h-[40px] md:w-[46px] md:h-[46px] rounded-full border border-[#E8E5DF] bg-[#FFFFFF] shadow-[0_2px_8px_rgba(0,0,0,0.04),0_1px_2px_rgba(0,0,0,0.02)] flex items-center justify-center text-[#8C857B] hover:text-[#4A453F] hover:bg-[#FAFAFA] hover:shadow-[0_6px_16px_rgba(0,0,0,0.06)] hover:-translate-x-[2px] transition-all duration-300">
+                <svg class="w-[18px] h-[18px] md:w-[20px] md:h-[20px] pr-[1px]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M15 19l-7-7 7-7"></path>
+                </svg>
+            </button>
+        </div>
+    </div>
+
+    <!-- 单页应用挂载点 -->
+    <div id="app" class="relative z-10 w-full min-h-screen opacity-0 translate-y-12 transition-all duration-[800ms] ease-[cubic-bezier(0.25,1,0.5,1)]">
+        
+        <!-- =========================================
+             视图 1：首页 (Home View)
+             ========================================= -->
+        <main id="view-home" class="view-container view-visible max-w-2xl mx-auto pt-24 pb-32 px-6">
+            
+            <!-- 加入 blur-target 类 -->
+            <header class="flex justify-between items-baseline gradient-border-b pb-8 blur-target">
+                <h1 class="font-caveat text-5xl font-semibold tracking-wide text-[#43332C]">Topher</h1>
+                <span class="text-[13px] text-garden-accent tracking-wide font-normal">Beyond design</span>
+            </header>
+
+            <!-- 加入 blur-target 类 -->
+            <section class="mt-8 text-[15px] leading-relaxed text-[#432E23] font-normal tracking-wide space-y-4 relative z-10 blur-target">
+                <p>
+                    5年体验设计经验，拥有B端SaaS与C端多领域产品实战经历，擅长以严谨逻辑重构复杂业务流程，用细腻视角打磨交互体验，通过设计驱动体验升级与业务增长。
+                </p>
+            </section>
+
+            <section class="mt-20 relative z-10">
+                <!-- 标题本身加入 blur-target，但下方的 portfolio-list 保持独立处理 -->
+                <h2 class="font-caveat text-4xl mb-6 text-[#43332C] blur-target">work</h2>
+                <div class="portfolio-list flex flex-col" id="project-list"></div>
+            </section>
+
+            <!-- 加入 blur-target 类 -->
+            <section class="mt-24 text-left relative z-10 blur-target">
+                <h2 class="font-caveat text-4xl mb-8 text-[#43332C]">contact me</h2>
+                <div class="flex flex-col md:flex-row flex-wrap justify-start items-baseline gap-6 md:gap-10 text-[14px] font-medium tracking-wide w-full">
+                    
+                    <div class="flex items-baseline whitespace-nowrap group cursor-pointer" data-copy="feng.tangim@outlook.com" onclick="copyToClipboard(this)" title="点击复制">
+                        <span class="text-garden-accent mr-2 transition-colors duration-300 group-hover:!text-garden-text">Email:</span>
+                        <span class="text-[#432E23] border-b border-garden-border group-hover:!border-[#432E23] transition-all duration-300">feng.tangim@outlook.com</span>
+                    </div>
+                    
+                    <div class="flex items-baseline whitespace-nowrap group cursor-pointer" data-copy="15750789163" onclick="copyToClipboard(this)" title="点击复制">
+                        <span class="text-garden-accent mr-2 transition-colors duration-300 group-hover:!text-garden-text">Phone:</span>
+                        <span class="text-[#432E23] border-b border-garden-border group-hover:!border-[#432E23] transition-all duration-300">15750789163</span>
+                    </div>
+                    
+                    <div class="flex items-baseline whitespace-nowrap group cursor-pointer" data-copy="tt760620994" onclick="copyToClipboard(this)" title="点击复制">
+                        <span class="text-garden-accent mr-2 transition-colors duration-300 group-hover:!text-garden-text">WeChat:</span>
+                        <span class="text-[#432E23] border-b border-garden-border group-hover:!border-[#432E23] transition-all duration-300">tt760620994</span>
+                    </div>
+
+                </div>
+            </section>
+
+        </main>
+        
+        <!-- 视图 2：详情页。图片宽度 1220px -->
+        <!-- [修复核心2] 初始状态强制给详情页增加 display: none，双重保险 -->
+        <main id="view-detail" class="view-container view-hidden max-w-[1268px] mx-auto pt-16 pb-32 px-6" style="display: none;">
+
+            <div class="mt-12 mb-8">
+                <h1 id="detail-title" class="font-caveat text-5xl font-semibold tracking-wide text-[#43332C]"></h1>
+                <p id="detail-date" class="text-sm text-garden-accent mt-3 italic font-medium"></p>
+            </div>
+
+            <!-- 极简模式图片层：去除了容易产生抗锯齿 Bug 的 wrapper，直接让 img 承担视觉效果 -->
+            <!-- 增加了 drop-shadow，它比 box-shadow 更好地贴合带圆角的元素轮廓，且不容易产生亚像素边缘伪影 -->
+            <div id="detail-hero" class="w-full mb-10 flex flex-col items-center justify-center">
+            </div>
+
+            <div class="detail-end text-center pt-8 pb-4">
+                <span class="font-caveat text-4xl text-garden-accent tracking-wide">End</span>
+            </div>
+
+        </main>
+    </div>
+
+    <!-- 复制成功的 Toast 提示 -->
+    <div id="copy-toast" class="fixed bottom-12 left-1/2 transform -translate-x-1/2 bg-[#4A453F] text-white px-6 py-3 rounded-full text-sm font-medium opacity-0 translate-y-4 pointer-events-none transition-all duration-300 z-50 flex items-center shadow-lg">
+        <svg class="w-4 h-4 mr-2 text-[#68C77F]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path></svg>
+        复制成功
+    </div>
+
+    <!-- =========================================
+         核心交互与数据源 (JavaScript)
+         ========================================= -->
+    <script>
+        const projects = [
+            {
+                id: 1,
+                title: 'B端电商 SaaS 工具',
+                date: 'Sep 2023 - Jul 2026',
+                content: `
+                    <p>重构了全渠道 ERP 履约系统的核心工作流。过去的系统因为功能堆砌，导致商家的打单效率极低，新手客服往往需要培训一周才能上岗。</p>
+                    <p>我们在这个项目中引入了“意图识别”与“极简信息架构”理念。将原本复杂的 5 步改价与审单流程，缩减为了基于异常状态驱动的 3 步操作。</p>
+                    <p>经过重新设计，商家的打单效率提升了近 40%，极大地降低了旺季大促期间的错发率。最重要的是，我们证明了复杂的 B 端系统同样可以拥有优雅且直觉的操作体验。</p>
+                `
+            },
+            {
+                id: 2,
+                title: '华为系统输入法',
+                date: 'Jan 2022 - May 2023',
+                content: `
+                    <p>为中大型零售商家设计的一站式数据监控看板。在这个项目中，最大的挑战是如何对“数据进行降噪”。</p>
+                    <p>我们摒弃了传统的“花哨可视化大屏”思路，转而采用了更接近于“金融终端”的克制排版。通过合理的字号层级、留白，以及条件状态色（如仅在异动时标红），让商管人员一眼就能锁定业务瓶颈。</p>
+                `
+            },
+            {
+                id: 3,
+                title: '万科社区服务工具',
+                date: 'Apr 2020 - Dec 2021',
+                content: `
+                    <p>探索大模型（LLM）在商家智能客服工作台中的实际落地。我们不仅把 AI 做成了一个对话框，而是将其无缝嵌入到了客诉处理流的每一步。</p>
+                    <p>当商家打开一张售后工单时，AI 已经自动总结了长达几十页的聊天记录，并高亮了买家的核心诉求，甚至预填好了最优的退款方案。设计师在这里的作用，就是让 AI 的介入既智能又不突兀。</p>
+                `
+            }
+        ];
+
+        // 详情页图片按文件名中的数字升序排列，避免依赖文件系统返回顺序。
+        const detailImageSets = {
+            2: Array.from({ length: 47 }, (_, index) => `pj2/${String(index + 1).padStart(2, '0')}.jpg`),
+            3: Array.from({ length: 31 }, (_, index) => `pj3/${index + 49}.jpg`)
+        };
+
+        function getProjectThumbnail(projectId, layer) {
+            if (projectId === 1) {
+                return `pj1/erp${layer}.png`;
+            }
+
+            if (projectId === 2) {
+                const inputMethodThumbnails = { 1: '01', 2: '42', 3: '47' };
+                return `pj2/${inputMethodThumbnails[layer]}.jpg`;
+            }
+
+            if (projectId === 3) {
+                const communityThumbnails = { 1: '49', 2: '72', 3: '79' };
+                return `pj3/${communityThumbnails[layer]}.jpg`;
+            }
+
+            return `row${projectId}-${layer}.png`;
+        }
+
+        function renderList() {
+            const listContainer = document.getElementById('project-list');
+            let html = '';
+            
+            projects.forEach((project, index) => {
+                // 判断当前行：0和2是奇数行(图一)，1和3是偶数行(图二)
+                const stackStyleClass = (index % 2 === 0) ? 'stack-style-1' : 'stack-style-2';
+                
+                // 判断如果是第4个项目(id=4)，显示箭头图标并调整尺寸为 14px 以适配 13px 的字号；否则显示原本的时间
+                const dateContent = project.id === 4 
+                    ? `<svg class="w-[14px] h-[14px]" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18l6-6-6-6"></path></svg>`
+                    : project.date;
+                
+                // 首页列表图片：使用各项目的真实切图，并保留占位图兜底。
+                html += `
+                    <div class="project-row flex items-center justify-between py-5 gradient-border-b cursor-pointer relative z-10" onclick="openDetail(${project.id})">
+                        <div class="flex items-center space-x-8 md:space-x-12">
+                            <div class="w-[60px] h-[40px] flex-shrink-0">
+                                <div class="polaroid-stack ${stackStyleClass} w-full h-full relative z-10">
+                                    <div class="card-3">
+                                        <img src="${getProjectThumbnail(project.id, 3)}" onerror="this.onerror=null;this.src='https://placehold.co/120x80/E8E5DF/8C857B?text=3'" class="w-full h-full object-cover bg-gray-300" alt="">
+                                    </div>
+                                    <div class="card-2">
+                                        <img src="${getProjectThumbnail(project.id, 2)}" onerror="this.onerror=null;this.src='https://placehold.co/120x80/E8E5DF/8C857B?text=2'" class="w-full h-full object-cover bg-gray-200" alt="">
+                                    </div>
+                                    <div class="card-1">
+                                        <img src="${getProjectThumbnail(project.id, 1)}" onerror="this.onerror=null;this.src='https://placehold.co/120x80/E8E5DF/8C857B?text=1'" class="w-full h-full object-cover bg-gray-100" alt="">
+                                    </div>
+                                </div>
+                            </div>
+                            <h3 class="text-[15px] font-normal text-[#432E23]">${project.title}</h3>
+                        </div>
+                        <span class="text-[13px] text-garden-accent tracking-wide flex items-center justify-center">
+                            ${dateContent}
+                        </span>
+                    </div>
+                `;
+            });
+            
+            listContainer.innerHTML = html;
+        }
+
         // 已经废弃了 JS 计算坐标，直接依靠更强大的 CSS Sticky 渲染，使得打开和滚动更丝滑
         function openDetail(id) {
             const project = projects.find(p => p.id === id);
