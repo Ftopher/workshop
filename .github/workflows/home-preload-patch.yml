@@ -1,0 +1,68 @@
+name: home-preload-patch
+
+on:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Patch index
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          p = Path('index.html')
+          s = p.read_text(encoding='utf-8')
+          if 'function preloadDetailImagesOnIdle()' in s:
+              raise SystemExit(0)
+          marker = '        function getProjectThumbnail(projectId, layer) {'
+          code = '''        function preloadDetailImagesOnIdle() {
+            const urls = [
+                ...Array.from({ length: 14 }, (_, i) => `pj1/${i + 1}.jpg`),
+                ...Array.from({ length: 47 }, (_, i) => `pj2/${String(i + 1).padStart(2, '0')}.jpg`),
+                ...Array.from({ length: 31 }, (_, i) => `pj3/${i + 49}.jpg`)
+            ];
+            let index = 0;
+            const warm = () => {
+                const end = Math.min(index + 4, urls.length);
+                while (index < end) {
+                    const image = new Image();
+                    image.decoding = 'async';
+                    image.src = `./${urls[index++]}`;
+                }
+                if (index < urls.length) schedule();
+            };
+            const schedule = () => {
+                if ('requestIdleCallback' in window) {
+                    window.requestIdleCallback(warm, { timeout: 1500 });
+                } else {
+                    window.setTimeout(warm, 250);
+                }
+            };
+            schedule();
+        }
+
+'''
+          if marker not in s:
+              raise SystemExit('marker missing')
+          s = s.replace(marker, code + marker, 1)
+          call = "        renderList();"
+          if call not in s:
+              raise SystemExit('renderList call missing')
+          s = s.replace(call, call + "\n\n        if (document.readyState === 'loading') {\n            document.addEventListener('DOMContentLoaded', preloadDetailImagesOnIdle, { once: true });\n        } else {\n            preloadDetailImagesOnIdle();\n        }", 1)
+          p.write_text(s, encoding='utf-8')
+          PY
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add index.html
+          git rm .github/workflows/home-preload-patch.yml
+          git commit -m 'Preload detail images from home [home-preload]'
+          git push
