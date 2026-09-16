@@ -16,20 +16,11 @@ jobs:
         run: |
           python - <<'PY'
           from pathlib import Path
+          import re
           p=Path('index.html')
           s=p.read_text(encoding='utf-8')
-          old="""            // 详情页解除 DOM 隐藏，再触发淡入
-            detailView.style.display = 'block';
-            setTimeout(() => {
-                detailView.classList.remove('view-hidden');
-                detailView.classList.add('view-visible');
-                
-                // 返回按钮渐显
-                backLayer.classList.remove('opacity-0');
-                backLayer.classList.add('opacity-100');
-            }, 50);"""
-          new="""            // 详情页先保持隐藏，等首张大图完成加载/解码后再淡入，避免 End 闪现。
-            detailView.style.display = 'block';
+          pattern = r"            detailView\.style\.display = 'block';\s*setTimeout\(\(\) => \{.*?\n            \}, 50\);"
+          replacement = '''            detailView.style.display = 'block';
 
             const revealDetail = () => {
                 detailView.classList.remove('view-hidden');
@@ -63,10 +54,11 @@ jobs:
                 }, { once: true });
                 firstImage.addEventListener('error', revealOnce, { once: true });
                 setTimeout(revealOnce, 1500);
-            }"""
-          if old not in s:
-              raise SystemExit('target block not found')
-          p.write_text(s.replace(old,new,1),encoding='utf-8')
+            }'''
+          s,n=re.subn(pattern,replacement,s,count=1,flags=re.S)
+          if n != 1:
+              raise SystemExit(f'patch target not found, matches={n}')
+          p.write_text(s,encoding='utf-8')
           PY
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
