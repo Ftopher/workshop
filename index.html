@@ -664,6 +664,37 @@
 
         renderList();
 
+        // 首页加载稳定后，在后台预热详情页图片，避免进入详情页或快速滚动时出现空白占位。
+        function preloadDetailImagesFromHome() {
+            const urls = [
+                ...Array.from({ length: 14 }, (_, i) => `pj1/${i + 1}.jpg`),
+                ...Array.from({ length: 47 }, (_, i) => `pj2/${String(i + 1).padStart(2, '0')}.jpg`),
+                ...Array.from({ length: 31 }, (_, i) => `pj3/${i + 49}.jpg`)
+            ];
+
+            let index = 0;
+            const warmBatch = () => {
+                for (let i = 0; i < 4 && index < urls.length; i++, index++) {
+                    const image = new Image();
+                    image.decoding = 'async';
+                    image.src = `./${urls[index]}`;
+                }
+
+                if (index < urls.length) {
+                    if ('requestIdleCallback' in window) {
+                        requestIdleCallback(warmBatch, { timeout: 1000 });
+                    } else {
+                        setTimeout(warmBatch, 200);
+                    }
+                }
+            };
+
+            warmBatch();
+        }
+
+        // 不阻塞首页首屏：页面稳定后再开始后台预热。
+        setTimeout(preloadDetailImagesFromHome, 1800);
+
         function copyToClipboard(element) {
             const text = element.getAttribute('data-copy');
             const textArea = document.createElement("textarea");
