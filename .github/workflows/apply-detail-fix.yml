@@ -1,5 +1,6 @@
 name: Apply detail image flash fix
 
+# Trigger patch runner
 on:
   push:
     branches: [main]
