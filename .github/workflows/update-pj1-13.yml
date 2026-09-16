@@ -1,0 +1,47 @@
+name: Update pj1 image 13 paths
+
+on:
+  push:
+    paths:
+      - '.github/workflows/.pj1-13-trigger'
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Update image paths and restore gray background
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('index.html')
+          s = p.read_text()
+
+          old = """                    'pj1/12.jpg',\n                    'pj1/13.jpg',\n                    'pj1/14.jpg'"""
+          new = """                    'pj1/12.jpg',\n                    'pj1/13-1.jpg',\n                    'pj1/13-2.jpg',\n                    'pj1/13-3.jpg',\n                    'pj1/14.jpg'"""
+          if old not in s:
+              raise SystemExit('detail image list pattern not found')
+          s = s.replace(old, new, 1)
+
+          old_preload = """                ...Array.from({ length: 14 }, (_, i) => `pj1/${i + 1}.jpg`),"""
+          new_preload = """                ...Array.from({ length: 12 }, (_, i) => `pj1/${i + 1}.jpg`),\n                'pj1/13-1.jpg',\n                'pj1/13-2.jpg',\n                'pj1/13-3.jpg',\n                'pj1/14.jpg',"""
+          if old_preload not in s:
+              raise SystemExit('preload image list pattern not found')
+          s = s.replace(old_preload, new_preload, 1)
+
+          old_class = 'class="erp-detail-img w-full h-auto block"'
+          new_class = 'class="erp-detail-img w-full h-auto bg-[#E8E5DF] block"'
+          if old_class not in s:
+              raise SystemExit('detail image class pattern not found')
+          s = s.replace(old_class, new_class, 1)
+
+          p.write_text(s)
+          PY
+
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add index.html
+          git commit -m 'Update project 13 images' || exit 0
+          git push
