@@ -1,0 +1,81 @@
+name: home preload
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: ${{ !contains(github.event.head_commit.message, '[home-preload]') }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Patch index.html
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          p = Path('index.html')
+          s = p.read_text(encoding='utf-8')
+          if 'function preloadDetailImagesFromHome()' in s:
+              raise SystemExit(0)
+          marker = '        function getProjectThumbnail(projectId, layer) {'
+          code = '''        function preloadDetailImagesFromHome() {
+            const urls = [
+                ...Array.from({length: 14}, (_, i) => `pj1/${i + 1}.jpg`),
+                ...Array.from({length: 47}, (_, i) => `pj2/${String(i + 1).padStart(2, '0')}.jpg`),
+                ...Array.from({length: 31}, (_, i) => `pj3/${i + 49}.jpg`)
+            ];
+            const warm = (url) => {
+                const image = new Image();
+                image.decoding = 'async';
+                image.src = `./${url}`;
+            };
+            let index = 0;
+            const batch = () => {
+                for (let i = 0; i < 4 && index < urls.length; i++) warm(urls[index++]);
+                if (index < urls.length) {
+                    if ('requestIdleCallback' in window) {
+                        requestIdleCallback(batch, {timeout: 1500});
+                    } else {
+                        setTimeout(batch, 300);
+                    }
+                }
+            };
+            batch();
+        }
+
+'''
+          if marker not in s:
+              raise SystemExit('marker not found')
+          s = s.replace(marker, code + marker, 1)
+          marker2 = '        renderList();'
+          hook = '''        renderList();
+
+        if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', preloadDetailImagesFromHome, {once: true});
+        } else {
+            preloadDetailImagesFromHome();
+        }'''
+          if marker2 not in s:
+              raise SystemExit('render marker not found')
+          s = s.replace(marker2, hook, 1)
+          p.write_text(s, encoding='utf-8')
+          PY
+
+      - name: Commit change
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add index.html
+          git commit -m 'Preload detail images from home [home-preload]'
+          git push
+
+      - name: Remove temporary workflow
+        run: |
+          git rm .github/workflows/home-preload.yml
+          git commit -m 'Remove temporary home preload workflow [home-preload]'
+          git push
