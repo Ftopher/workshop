@@ -1,0 +1,96 @@
+name: preload-detail-on-home
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: ${{ !contains(github.event.head_commit.message, '[home-preload]') }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+      - name: Patch index.html
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          p = Path('index.html')
+          s = p.read_text(encoding='utf-8')
+          marker = """        function getProjectThumbnail(projectId, layer) {"""
+          if "function preloadDetailImagesOnIdle()" in s:
+              raise SystemExit('preloader already exists')
+          insert = r'''        // 首页稳定后，在后台预热详情页图片，不阻塞首页打开。
+        function preloadDetailImagesOnIdle() {
+            const sets = {
+                1: [
+                    'pj1/1.jpg','pj1/2.jpg','pj1/3.jpg','pj1/4.jpg','pj1/5.jpg','pj1/6.jpg','pj1/7.jpg',
+                    'pj1/8.jpg','pj1/9.jpg','pj1/10.jpg','pj1/11.jpg','pj1/12.jpg','pj1/13.jpg','pj1/14.jpg'
+                ],
+                2: Array.from({ length: 47 }, (_, index) => `pj2/${String(index + 1).padStart(2, '0')}.jpg`),
+                3: Array.from({ length: 31 }, (_, index) => `pj3/${index + 49}.jpg`)
+            };
+
+            const urls = Object.values(sets).flat();
+            let index = 0;
+            const warm = (count = 3) => {
+                for (let i = 0; i < count && index < urls.length; i++, index++) {
+                    const img = new Image();
+                    img.decoding = 'async';
+                    img.loading = 'eager';
+                    img.src = `./${urls[index]}`;
+                }
+                if (index < urls.length) scheduleNext();
+            };
+
+            const scheduleNext = () => {
+                if (index >= urls.length) return;
+                if ('requestIdleCallback' in window) {
+                    requestIdleCallback(() => warm(3), { timeout: 1500 });
+                } else {
+                    setTimeout(() => warm(3), 300);
+                }
+            };
+
+            // 先让每个项目最前面的几张进入缓存，再继续铺开其余图片。
+            const priorityUrls = [
+                'pj1/1.jpg','pj1/2.jpg','pj1/3.jpg',
+                'pj2/01.jpg','pj2/02.jpg','pj2/03.jpg',
+                'pj3/49.jpg','pj3/50.jpg','pj3/51.jpg'
+            ];
+            priorityUrls.forEach(url => {
+                const img = new Image();
+                img.decoding = 'async';
+                img.src = `./${url}`;
+            });
+
+            scheduleNext();
+        }
+
+'''
+          if marker not in s:
+              raise SystemExit('insert marker not found')
+          s = s.replace(marker, insert + marker, 1)
+
+          hook = """        function renderList() {"""
+          if "preloadDetailImagesOnIdle();" not in s:
+              s = s.replace(hook, """        function renderList() {""", 1)
+              init_marker = """        renderList();"""
+              if init_marker in s:
+                  s = s.replace(init_marker, init_marker + "\n\n        if (document.readyState === 'loading') {\n            document.addEventListener('DOMContentLoaded', preloadDetailImagesOnIdle, { once: true });\n        } else {\n            preloadDetailImagesOnIdle();\n        }", 1)
+              else:
+                  raise SystemExit('renderList call not found')
+
+          p.write_text(s, encoding='utf-8')
+          PY
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add index.html
+          git rm .github/workflows/preload-detail-on-home.yml
+          git add .github/workflows/preload-detail-on-home.yml || true
+          git commit -m 'Preload detail images after home is ready [home-preload]'
+          git push
