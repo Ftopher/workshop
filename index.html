@@ -667,7 +667,7 @@
         // 首页稳定后，在后台预热详情页图片。除了提前下载，还会低并发 decode，
         // 并保留 Image 引用，减少“已下载但滚动到这里才开始解码”的空白闪现。
         const detailWarmImages = [];
-        const detailWarmState = new WeakSet();
+        const detailWarmLastDecode = new WeakMap();
 
         function preloadDetailImagesFromHome() {
             const urls = [
@@ -707,7 +707,7 @@
         }
 
         // 对当前详情页附近的图片优先 decode，专门应对拖动右侧滚动条瞬间跳跃。
-        function prioritizeVisibleDetailImages() {
+        function prioritizeVisibleDetailImages(force = false) {
             const images = document.querySelectorAll('#detail-hero .erp-detail-img');
             const viewportTop = window.scrollY;
             const viewportBottom = viewportTop + window.innerHeight;
@@ -725,13 +725,12 @@
 
             candidates.sort((a, b) => a.distance - b.distance);
             candidates.slice(0, 6).forEach(({ image }) => {
-                if (detailWarmState.has(image)) return;
-                detailWarmState.add(image);
-                if (typeof image.decode === 'function' && !image.complete) {
-                    image.decode().catch(() => {});
-                } else if (typeof image.decode === 'function') {
-                    image.decode().catch(() => {});
-                }
+                if (typeof image.decode !== 'function') return;
+                const now = performance.now();
+                const lastDecode = detailWarmLastDecode.get(image) || 0;
+                if (!force && now - lastDecode < 180) return;
+                detailWarmLastDecode.set(image, now);
+                image.decode().catch(() => {});
             });
         }
 
