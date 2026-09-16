@@ -1,0 +1,243 @@
+name: Detail image re-decode optimization
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  patch:
+    if: github.actor == 'github-actions[bot]' || contains(github.event.head_commit.message, 'Prepare detail image re-decode optimization')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Patch index.html
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('index.html')
+          s = p.read_text()
+
+          old = '''        // 首页稳定后，在后台预热详情页图片。除了提前下载，还会低并发 decode,
+        // 并保留 Image 引用，减少“已下载但滚动到这里才开始解码”的空白闪现。
+        const detailWarmImages = [];
+        const detailWarmState = new WeakSet();
+
+        function preloadDetailImagesFromHome() {
+            const urls = [
+                ...Array.from({ length: 14 }, (_, i) => `pj1/${i + 1}.jpg`),
+                ...Array.from({ length: 47 }, (_, i) => `pj2/${String(i + 1).padStart(2, '0')}.jpg`),
+                ...Array.from({ length: 31 }, (_, i) => `pj3/${i + 49}.jpg`)
+            ];
+
+            let index = 0;
+            const warmBatch = () => {
+                const batch = [];
+                for (let i = 0; i < 2 && index < urls.length; i++, index++) {
+                    const image = new Image();
+                    image.decoding = 'async';
+                    image.fetchPriority = 'low';
+                    image.src = `./${urls[index]}`;
+                    detailWarmImages.push(image);
+                    batch.push(image);
+                }
+
+                // 首页空闲时才做 decode，避免影响首屏交互。
+                Promise.all(batch.map(image => {
+                    if (typeof image.decode !== 'function') return Promise.resolve();
+                    return image.decode().catch(() => {});
+                })).finally(() => {
+                    if (index < urls.length) {
+                        if ('requestIdleCallback' in window) {
+                            requestIdleCallback(warmBatch, { timeout: 1500 });
+                        } else {
+                            setTimeout(warmBatch, 300);
+                        }
+                    }
+                });
+            };
+
+            warmBatch();
+        }
+
+        // 对当前详情页附近的图片优先 decode，专门应对拖动右侧滚动条瞬间跳跃。
+        function prioritizeVisibleDetailImages() {
+            const images = document.querySelectorAll('#detail-hero .erp-detail-img');
+            const viewportTop = window.scrollY;
+            const viewportBottom = viewportTop + window.innerHeight;
+            const candidates = [];
+
+            images.forEach(image => {
+                const rect = image.getBoundingClientRect();
+                const top = rect.top + window.scrollY;
+                const bottom = rect.bottom + window.scrollY;
+                const distance = top > viewportBottom ? top - viewportBottom : (viewportTop > bottom ? viewportTop - bottom : 0);
+                if (distance < window.innerHeight * 3) {
+                    candidates.push({ image, distance });
+                }
+            });
+
+            candidates.sort((a, b) => a.distance - b.distance);
+            candidates.slice(0, 6).forEach(({ image }) => {
+                if (detailWarmState.has(image)) return;
+                detailWarmState.add(image);
+                if (typeof image.decode === 'function' && !image.complete) {
+                    image.decode().catch(() => {});
+                } else if (typeof image.decode === 'function') {
+                    image.decode().catch(() => {});
+                }
+            });
+        }
+'''
+
+          new = '''        // 首页稳定后，在后台预热详情页图片。预加载仍然保留，但进入详情页后会优先服务当前视口附近图片。
+        const detailWarmImages = [];
+        const detailWarmIntervals = new WeakMap();
+        let detailWarmPaused = false;
+        let detailWarmResume = null;
+        let detailWarmIndex = 0;
+        let detailWarmStarted = false;
+
+        const detailWarmUrls = [
+            ...Array.from({ length: 14 }, (_, i) => `pj1/${i + 1}.jpg`),
+            ...Array.from({ length: 47 }, (_, i) => `pj2/${String(i + 1).padStart(2, '0')}.jpg`),
+            ...Array.from({ length: 31 }, (_, i) => `pj3/${i + 49}.jpg`)
+        ];
+
+        function preloadDetailImagesFromHome() {
+            if (detailWarmStarted) return;
+            detailWarmStarted = true;
+
+            const warmBatch = () => {
+                if (detailWarmPaused) {
+                    detailWarmResume = warmBatch;
+                    return;
+                }
+                detailWarmResume = null;
+
+                if (detailWarmIndex >= detailWarmUrls.length) return;
+
+                const batch = [];
+                for (let i = 0; i < 2 && detailWarmIndex < detailWarmUrls.length; i++, detailWarmIndex++) {
+                    const image = new Image();
+                    image.decoding = 'async';
+                    image.fetchPriority = 'low';
+                    image.src = `./${detailWarmUrls[detailWarmIndex]}`;
+                    detailWarmImages.push(image);
+                    batch.push(image);
+                }
+
+                // 首页空闲时低并发 decode，避免抢占首屏和详情页当前图片的渲染资源。
+                Promise.all(batch.map(image => {
+                    if (typeof image.decode !== 'function') return Promise.resolve();
+                    return image.decode().catch(() => {});
+                })).finally(() => {
+                    if (detailWarmIndex < detailWarmUrls.length) {
+                        if (detailWarmPaused) {
+                            detailWarmResume = warmBatch;
+                        } else if ('requestIdleCallback' in window) {
+                            requestIdleCallback(warmBatch, { timeout: 1500 });
+                        } else {
+                            setTimeout(warmBatch, 300);
+                        }
+                    }
+                });
+            };
+
+            warmBatch();
+        }
+
+        // 对当前详情页附近的图片持续优先 decode。
+        // 不再用“一次 decode 永久标记”，因为浏览器在快速跳跃后可能释放已经解码的像素缓存。
+        function prioritizeVisibleDetailImages(force = false) {
+            const images = document.querySelectorAll('#detail-hero .erp-detail-img');
+            const viewportTop = window.scrollY;
+            const viewportBottom = viewportTop + window.innerHeight;
+            const candidates = [];
+
+            images.forEach(image => {
+                const rect = image.getBoundingClientRect();
+                const top = rect.top + viewportTop;
+                const bottom = rect.bottom + viewportTop;
+                const distance = top > viewportBottom ? top - viewportBottom : (viewportTop > bottom ? viewportTop - bottom : 0);
+                if (distance < window.innerHeight * 3) {
+                    candidates.push({ image, distance });
+                }
+            });
+
+            candidates.sort((a, b) => a.distance - b.distance);
+            candidates.slice(0, 6).forEach(({ image }) => {
+                if (typeof image.decode !== 'function') return;
+
+                const now = performance.now();
+                const last = detailWarmIntervals.get(image) || 0;
+                if (!force && now - last < 180) return;
+                detailWarmIntervals.set(image, now);
+                image.decode().catch(() => {});
+            });
+        }
+
+        // 进入详情页后暂停低优先级的全站预热，把 CPU / 解码预算让给当前视口。
+        function pauseDetailBackgroundWarm() {
+            detailWarmPaused = true;
+        }
+
+        function resumeDetailBackgroundWarm() {
+            detailWarmPaused = false;
+            if (detailWarmResume) {
+                const resume = detailWarmResume;
+                detailWarmResume = null;
+                if ('requestIdleCallback' in window) {
+                    requestIdleCallback(resume, { timeout: 1000 });
+                } else {
+                    setTimeout(resume, 100);
+                }
+            }
+        }
+
+        let detailScrollRaf = 0;
+        window.addEventListener('scroll', () => {
+            if (detailScrollRaf) return;
+            detailScrollRaf = requestAnimationFrame(() => {
+                detailScrollRaf = 0;
+                const detailView = document.getElementById('view-detail');
+                if (detailView && detailView.style.display !== 'none') {
+                    prioritizeVisibleDetailImages();
+                }
+            });
+        }, { passive: true });
+'''
+
+          if old not in s:
+              raise SystemExit('Old preload block not found')
+          s = s.replace(old, new, 1)
+
+          open_marker = "        function openDetail(id) {\n            const project = projects.find(p => p.id === id);"
+          open_repl = "        function openDetail(id) {\n            const project = projects.find(p => p.id === id);\n            pauseDetailBackgroundWarm();"
+          if open_marker not in s:
+              raise SystemExit('openDetail marker not found')
+          s = s.replace(open_marker, open_repl, 1)
+
+          first_marker = "      const firstImage = heroWrapper.querySelector('img');\n  if (!firstImage) {"
+          first_repl = "      const firstImage = heroWrapper.querySelector('img');\n  // 详情页首次展示后，立即把当前视口附近图片纳入动态 decode。\n  requestAnimationFrame(() => prioritizeVisibleDetailImages(true));\n  if (!firstImage) {"
+          if first_marker not in s:
+              raise SystemExit('firstImage marker not found')
+          s = s.replace(first_marker, first_repl, 1)
+
+          close_marker = "        function closeDetail() {\n            const homeView = document.getElementById('view-home');"
+          close_repl = "        function closeDetail() {\n            resumeDetailBackgroundWarm();\n            const homeView = document.getElementById('view-home');"
+          if close_marker not in s:
+              raise SystemExit('closeDetail marker not found')
+          s = s.replace(close_marker, close_repl, 1)
+
+          p.write_text(s)
+          PY
+
+      - name: Commit patch
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add index.html
+          git commit -m "Improve detail image re-decode during fast scrolling"
+          git push
