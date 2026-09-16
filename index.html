@@ -684,14 +684,21 @@
                 if (revealed) return;
                 revealed = true;
 
+                // 先播放开屏内容
                 loader.classList.add('start-anim');
-                loader.classList.add('-translate-y-full');
-                app.classList.remove('opacity-0', 'translate-y-12');
-                app.classList.add('translate-y-0');
 
+                // 完整展示 1.5 秒后，再让 Loader 离场
                 setTimeout(() => {
-                    loader.style.display = 'none';
-                }, 650);
+                    loader.classList.add('-translate-y-full');
+
+                    app.classList.remove('opacity-0', 'translate-y-12');
+                    app.classList.add('translate-y-0');
+
+                    // 等 Loader 离场动画结束后隐藏
+                    setTimeout(() => {
+                        loader.style.display = 'none';
+                    }, 650);
+                }, 1500);
             };
 
             // 优先等待本地字体加载完成，保证开屏文字使用正确字体。
@@ -701,8 +708,8 @@
 
             fontsReady.then(revealApp).catch(revealApp);
 
-            // 字体加载异常时自动兜底，避免页面永久停留在加载层。
-            setTimeout(revealApp, 1800);
+            // 最长等待时间兜底，避免字体异常导致页面一直卡在开屏
+            setTimeout(revealApp, 3000);
         });
 
         // =========================================
