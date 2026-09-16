@@ -21,12 +21,13 @@ jobs:
           p = Path("index.html")
           s = p.read_text(encoding="utf-8")
 
-          start_marker = "            detailView.style.display = 'block';"
-          end_marker = "        }\n\n        function closeDetail()"
-          start = s.find(start_marker)
+          marker = "            // 详情页解除 DOM 隐藏，再触发淡入"
+          end_marker = "        function closeDetail()"
+          start = s.find(marker)
           end = s.find(end_marker, start)
-          if start != -1 and end != -1:
-              replacement = '''            // 先等待首张详情图加载/解码，再显示详情页，避免 End 在图片撑开高度前闪现。
+
+          if start >= 0 and end > start:
+              new_block = '''            // 详情页先保持隐藏，等首张大图完成加载/解码后再淡入，避免 End 闪现。
             detailView.style.display = 'block';
 
             const revealDetail = () => {
@@ -62,17 +63,18 @@ jobs:
                 firstImage.addEventListener('error', revealOnce, { once: true });
                 setTimeout(revealOnce, 1500);
             }
-'''
-              s = s[:start] + replacement + s[end:]
-          else:
-              print('detail reveal block already fixed or markers not found')
 
-          p.write_text(s, encoding="utf-8")
+'''
+              s = s[:start] + new_block + s[end:]
+              p.write_text(s, encoding="utf-8")
+              print("detail reveal patched")
+          else:
+              print("detail reveal already patched or marker missing")
           PY
           python /tmp/fix.py
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git add index.html
           git diff --cached --quiet && exit 0
-          git commit -m 'Fix detail page image flash'
+          git commit -m 'Fix detail page reveal flash'
           git push
