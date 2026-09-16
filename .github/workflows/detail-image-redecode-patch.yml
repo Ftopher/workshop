@@ -1,12 +1,10 @@
-name: Detail image re-decode optimization
-
+name: Improve detail image re-decode
 on:
+  workflow_dispatch:
   push:
     branches: [main]
-
 jobs:
   patch:
-    if: github.actor != 'github-actions[bot]'
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -16,59 +14,31 @@ jobs:
         run: |
           python3 - <<'PY'
           from pathlib import Path
-          import re
           p = Path('index.html')
           s = p.read_text()
-          old_state = "const detailWarmState = new WeakSet();"
-          new_state = "const detailWarmLastDecode = new WeakMap();"
+          if 'const detailWarmLastDecode = new WeakMap();' in s:
+              print('Already patched; nothing to do.')
+              raise SystemExit(0)
+          old_state = 'const detailWarmState = new WeakSet();'
           if old_state not in s:
               raise SystemExit('state declaration not found')
-          s = s.replace(old_state, new_state, 1)
-          pattern = r"        function prioritizeVisibleDetailImages\(\) \{.*?        \}\n\n        let detailScrollRaf = 0;"
-          replacement = '''        function prioritizeVisibleDetailImages(force = false) {
-            const images = document.querySelectorAll('#detail-hero .erp-detail-img');
-            const viewportTop = window.scrollY;
-            const viewportBottom = viewportTop + window.innerHeight;
-            const candidates = [];
-
-            images.forEach(image => {
-                const rect = image.getBoundingClientRect();
-                const top = rect.top + window.scrollY;
-                const bottom = rect.bottom + window.scrollY;
-                const distance = top > viewportBottom ? top - viewportBottom : (viewportTop > bottom ? viewportTop - bottom : 0);
-                if (distance < window.innerHeight * 3) {
-                    candidates.push({ image, distance });
-                }
-            });
-
-            candidates.sort((a, b) => a.distance - b.distance);
-            candidates.slice(0, 6).forEach(({ image }) => {
-                if (typeof image.decode !== 'function') return;
-
-                const now = performance.now();
-                const lastDecode = detailWarmLastDecode.get(image) || 0;
-                if (!force && now - lastDecode < 180) return;
-
-                detailWarmLastDecode.set(image, now);
-                image.decode().catch(() => {});
-            });
-        }
-
-        let detailScrollRaf = 0;'''
-          s, count = re.subn(pattern, replacement, s, count=1, flags=re.S)
-          if count != 1:
+          s = s.replace(old_state, 'const detailWarmLastDecode = new WeakMap();', 1)
+          old_fn = '''        function prioritizeVisibleDetailImages() {\n            const images = document.querySelectorAll('#detail-hero .erp-detail-img');\n            const viewportTop = window.scrollY;\n            const viewportBottom = viewportTop + window.innerHeight;\n            const candidates = [];\n\n            images.forEach(image => {\n                const rect = image.getBoundingClientRect();\n                const top = rect.top + window.scrollY;\n                const bottom = rect.bottom + window.scrollY;\n                const distance = top > viewportBottom ? top - viewportBottom : (viewportTop > bottom ? viewportTop - bottom : 0);\n                if (distance < window.innerHeight * 3) {\n                    candidates.push({ image, distance });\n                }\n            });\n\n            candidates.sort((a, b) => a.distance - b.distance);\n            candidates.slice(0, 6).forEach(({ image }) => {\n                if (detailWarmState.has(image)) return;\n                detailWarmState.add(image);\n                if (typeof image.decode === 'function' && !image.complete) {\n                    image.decode().catch(() => {});\n                } else if (typeof image.decode === 'function') {\n                    image.decode().catch(() => {});\n                }\n            });\n        }'''
+          new_fn = '''        function prioritizeVisibleDetailImages(force = false) {\n            const images = document.querySelectorAll('#detail-hero .erp-detail-img');\n            const viewportTop = window.scrollY;\n            const viewportBottom = viewportTop + window.innerHeight;\n            const candidates = [];\n\n            images.forEach(image => {\n                const rect = image.getBoundingClientRect();\n                const top = rect.top + window.scrollY;\n                const bottom = rect.bottom + window.scrollY;\n                const distance = top > viewportBottom ? top - viewportBottom : (viewportTop > bottom ? viewportTop - bottom : 0);\n                if (distance < window.innerHeight * 3) {\n                    candidates.push({ image, distance });\n                }\n            });\n\n            candidates.sort((a, b) => a.distance - b.distance);\n            candidates.slice(0, 6).forEach(({ image }) => {\n                if (typeof image.decode !== 'function') return;\n                const now = performance.now();\n                const lastDecode = detailWarmLastDecode.get(image) || 0;\n                if (!force && now - lastDecode < 180) return;\n                detailWarmLastDecode.set(image, now);\n                image.decode().catch(() => {});\n            });\n        }'''
+          if old_fn not in s:
               raise SystemExit('prioritize function not found')
+          s = s.replace(old_fn, new_fn, 1)
           marker = "      const firstImage = heroWrapper.querySelector('img');\n  if (!firstImage) {"
-          repl = "      const firstImage = heroWrapper.querySelector('img');\n  // 进入详情页后立即预热当前视口附近图片，避免第一次快速跳跃时临时解码。\n  requestAnimationFrame(() => prioritizeVisibleDetailImages(true));\n  if (!firstImage) {"
+          replacement = "      const firstImage = heroWrapper.querySelector('img');\n  // 进入详情页后立即优先解码当前视口附近图片。\n  requestAnimationFrame(() => prioritizeVisibleDetailImages(true));\n  if (!firstImage) {"
           if marker not in s:
               raise SystemExit('firstImage marker not found')
-          s = s.replace(marker, repl, 1)
+          s = s.replace(marker, replacement, 1)
           p.write_text(s)
           PY
-      - name: Commit patch
+      - name: Commit patched file
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add index.html
-          git commit -m "[auto] Improve detail image re-decode during fast scrolling"
+          git diff --cached --quiet || git commit -m "Improve detail image re-decode during fast scrolling"
           git push
