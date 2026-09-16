@@ -683,17 +683,24 @@
             const revealApp = () => {
                 if (revealed) return;
                 revealed = true;
+
                 loader.classList.add('start-anim');
-                loader.classList.add('-translate-y-full');
-                app.classList.remove('opacity-0', 'translate-y-12');
-                app.classList.add('translate-y-0');
+
+                // 保留约 1.5 秒的开屏展示时间，但不等待字体加载。
                 setTimeout(() => {
-                    loader.style.display = 'none';
-                }, 650);
+                    loader.classList.add('-translate-y-full');
+
+                    app.classList.remove('opacity-0', 'translate-y-12');
+                    app.classList.add('translate-y-0');
+
+                    setTimeout(() => {
+                        loader.style.display = 'none';
+                    }, 600);
+                }, 1500);
             };
 
+            // 直接开始计时，避免字体加载异常导致页面再次空白。
             requestAnimationFrame(revealApp);
-            setTimeout(revealApp, 1800);
         });
 
         // =========================================
