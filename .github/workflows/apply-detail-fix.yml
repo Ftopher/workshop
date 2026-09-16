@@ -1,0 +1,29 @@
+name: Apply detail image flash fix
+
+on:
+  workflow_run:
+    workflows: ["Fix detail page image flash"]
+    types: [completed]
+
+permissions:
+  contents: write
+
+jobs:
+  fix:
+    if: ${{ github.event.workflow_run.conclusion == 'failure' || github.event.workflow_run.conclusion == 'success' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Patch index.html
+        run: |
+          echo 'ZnJvbSBwYXRobGliIGltcG9ydCBQYXRoCnA9UGF0aCgiaW5kZXguaHRtbCIpCnM9cC5yZWFkX3RleHQoZW5jb2Rpbmc9InV0Zi04IikKb2xkPSIiIiAgICAgICAgICAgICAgICBpbWFnZXMuZm9yRWFjaChpbWcgPT4gewogICAgICAgICAgICAgICAgICAgIGltZ0h0bWwgKz0gYDxpbWcgc3JjPSIuLyR7aW1nfSIgY2xhc3M9ImVycC1kZXRhaWwt...'
+          | base64 -d > /tmp/fix.py
+          python /tmp/fix.py
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add index.html
+          git commit -m 'Fix detail page image flash'
+          git push
