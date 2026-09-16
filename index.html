@@ -606,14 +606,40 @@
 
             // 详情页解除 DOM 隐藏，再触发淡入
             detailView.style.display = 'block';
-            setTimeout(() => {
-                detailView.classList.remove('view-hidden');
-                detailView.classList.add('view-visible');
-                
-                // 返回按钮渐显
-                backLayer.classList.remove('opacity-0');
-                backLayer.classList.add('opacity-100');
-            }, 50);
+
+  const revealDetail = () => {
+      detailView.classList.remove('view-hidden');
+      detailView.classList.add('view-visible');
+      backLayer.classList.remove('opacity-0');
+      backLayer.classList.add('opacity-100');
+  };
+
+  const firstImage = heroWrapper.querySelector('img');
+  if (!firstImage) {
+      revealDetail();
+  } else if (firstImage.complete) {
+      if (typeof firstImage.decode === 'function') {
+          firstImage.decode().catch(() => {}).finally(revealDetail);
+      } else {
+          revealDetail();
+      }
+  } else {
+      let revealed = false;
+      const revealOnce = () => {
+          if (revealed) return;
+          revealed = true;
+          revealDetail();
+      };
+      firstImage.addEventListener('load', () => {
+          if (typeof firstImage.decode === 'function') {
+              firstImage.decode().catch(() => {}).finally(revealOnce);
+          } else {
+              revealOnce();
+          }
+      }, { once: true });
+      firstImage.addEventListener('error', revealOnce, { once: true });
+      setTimeout(revealOnce, 1500);
+  }
         }
 
         function closeDetail() {
