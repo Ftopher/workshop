@@ -6,7 +6,7 @@ on:
 
 jobs:
   patch:
-    if: github.actor == 'github-actions[bot]' || contains(github.event.head_commit.message, 'Prepare detail image re-decode optimization')
+    if: github.actor != 'github-actions[bot]'
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -18,8 +18,7 @@ jobs:
           from pathlib import Path
           p = Path('index.html')
           s = p.read_text()
-
-          old = '''        // 首页稳定后，在后台预热详情页图片。除了提前下载，还会低并发 decode,
+          old = '''        // 首页稳定后，在后台预热详情页图片。除了提前下载，还会低并发 decode，
         // 并保留 Image 引用，减少“已下载但滚动到这里才开始解码”的空白闪现。
         const detailWarmImages = [];
         const detailWarmState = new WeakSet();
@@ -90,7 +89,6 @@ jobs:
             });
         }
 '''
-
           new = '''        // 首页稳定后，在后台预热详情页图片。预加载仍然保留，但进入详情页后会优先服务当前视口附近图片。
         const detailWarmImages = [];
         const detailWarmIntervals = new WeakMap();
@@ -208,36 +206,30 @@ jobs:
             });
         }, { passive: true });
 '''
-
           if old not in s:
               raise SystemExit('Old preload block not found')
           s = s.replace(old, new, 1)
-
-          open_marker = "        function openDetail(id) {\n            const project = projects.find(p => p.id === id);"
-          open_repl = "        function openDetail(id) {\n            const project = projects.find(p => p.id === id);\n            pauseDetailBackgroundWarm();"
-          if open_marker not in s:
+          marker = "        function openDetail(id) {\n            const project = projects.find(p => p.id === id);"
+          repl = "        function openDetail(id) {\n            const project = projects.find(p => p.id === id);\n            pauseDetailBackgroundWarm();"
+          if marker not in s:
               raise SystemExit('openDetail marker not found')
-          s = s.replace(open_marker, open_repl, 1)
-
-          first_marker = "      const firstImage = heroWrapper.querySelector('img');\n  if (!firstImage) {"
-          first_repl = "      const firstImage = heroWrapper.querySelector('img');\n  // 详情页首次展示后，立即把当前视口附近图片纳入动态 decode。\n  requestAnimationFrame(() => prioritizeVisibleDetailImages(true));\n  if (!firstImage) {"
-          if first_marker not in s:
+          s = s.replace(marker, repl, 1)
+          marker = "      const firstImage = heroWrapper.querySelector('img');\n  if (!firstImage) {"
+          repl = "      const firstImage = heroWrapper.querySelector('img');\n  // 详情页首次展示后，立即优先解码当前视口附近图片。\n  requestAnimationFrame(() => prioritizeVisibleDetailImages(true));\n  if (!firstImage) {"
+          if marker not in s:
               raise SystemExit('firstImage marker not found')
-          s = s.replace(first_marker, first_repl, 1)
-
-          close_marker = "        function closeDetail() {\n            const homeView = document.getElementById('view-home');"
-          close_repl = "        function closeDetail() {\n            resumeDetailBackgroundWarm();\n            const homeView = document.getElementById('view-home');"
-          if close_marker not in s:
+          s = s.replace(marker, repl, 1)
+          marker = "        function closeDetail() {\n            const homeView = document.getElementById('view-home');"
+          repl = "        function closeDetail() {\n            resumeDetailBackgroundWarm();\n            const homeView = document.getElementById('view-home');"
+          if marker not in s:
               raise SystemExit('closeDetail marker not found')
-          s = s.replace(close_marker, close_repl, 1)
-
+          s = s.replace(marker, repl, 1)
           p.write_text(s)
           PY
-
       - name: Commit patch
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add index.html
-          git commit -m "Improve detail image re-decode during fast scrolling"
+          git commit -m "[auto] Improve detail image re-decode during fast scrolling"
           git push
