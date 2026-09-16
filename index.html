@@ -691,21 +691,25 @@
         window.addEventListener('DOMContentLoaded', () => {
             const loader = document.getElementById('page-loader');
             const app = document.getElementById('app');
+            let revealed = false;
 
-            document.fonts.ready.then(() => {
+            const revealApp = () => {
+                if (revealed) return;
+                revealed = true;
+
                 loader.classList.add('start-anim');
+                loader.classList.add('-translate-y-full');
+                app.classList.remove('opacity-0', 'translate-y-12');
+                app.classList.add('translate-y-0');
 
                 setTimeout(() => {
-                    loader.classList.add('-translate-y-full');
+                    loader.style.display = 'none';
+                }, 650);
+            };
 
-                    app.classList.remove('opacity-0', 'translate-y-12');
-                    app.classList.add('translate-y-0');
-
-                    setTimeout(() => {
-                        loader.style.display = 'none';
-                    }, 600);
-                }, 1500);
-            });
+            // 不等待字体网络状态，避免字体加载失败或浏览器字体 Promise 异常导致页面永久停留在加载层。
+            requestAnimationFrame(revealApp);
+            setTimeout(revealApp, 1800);
         });
 
         // =========================================
