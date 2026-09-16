@@ -664,7 +664,11 @@
 
         renderList();
 
-        // 首页加载稳定后，在后台预热详情页图片，避免进入详情页或快速滚动时出现空白占位。
+        // 首页稳定后，在后台预热详情页图片。除了提前下载，还会低并发 decode，
+        // 并保留 Image 引用，减少“已下载但滚动到这里才开始解码”的空白闪现。
+        const detailWarmImages = [];
+        const detailWarmState = new WeakSet();
+
         function preloadDetailImagesFromHome() {
             const urls = [
                 ...Array.from({ length: 14 }, (_, i) => `pj1/${i + 1}.jpg`),
@@ -674,23 +678,74 @@
 
             let index = 0;
             const warmBatch = () => {
-                for (let i = 0; i < 4 && index < urls.length; i++, index++) {
+                const batch = [];
+                for (let i = 0; i < 2 && index < urls.length; i++, index++) {
                     const image = new Image();
                     image.decoding = 'async';
+                    image.fetchPriority = 'low';
                     image.src = `./${urls[index]}`;
+                    detailWarmImages.push(image);
+                    batch.push(image);
                 }
 
-                if (index < urls.length) {
-                    if ('requestIdleCallback' in window) {
-                        requestIdleCallback(warmBatch, { timeout: 1000 });
-                    } else {
-                        setTimeout(warmBatch, 200);
+                // 首页空闲时才做 decode，避免影响首屏交互。
+                Promise.all(batch.map(image => {
+                    if (typeof image.decode !== 'function') return Promise.resolve();
+                    return image.decode().catch(() => {});
+                })).finally(() => {
+                    if (index < urls.length) {
+                        if ('requestIdleCallback' in window) {
+                            requestIdleCallback(warmBatch, { timeout: 1500 });
+                        } else {
+                            setTimeout(warmBatch, 300);
+                        }
                     }
-                }
+                });
             };
 
             warmBatch();
         }
+
+        // 对当前详情页附近的图片优先 decode，专门应对拖动右侧滚动条瞬间跳跃。
+        function prioritizeVisibleDetailImages() {
+            const images = document.querySelectorAll('#detail-hero .erp-detail-img');
+            const viewportTop = window.scrollY;
+            const viewportBottom = viewportTop + window.innerHeight;
+            const candidates = [];
+
+            images.forEach(image => {
+                const rect = image.getBoundingClientRect();
+                const top = rect.top + window.scrollY;
+                const bottom = rect.bottom + window.scrollY;
+                const distance = top > viewportBottom ? top - viewportBottom : (viewportTop > bottom ? viewportTop - bottom : 0);
+                if (distance < window.innerHeight * 3) {
+                    candidates.push({ image, distance });
+                }
+            });
+
+            candidates.sort((a, b) => a.distance - b.distance);
+            candidates.slice(0, 6).forEach(({ image }) => {
+                if (detailWarmState.has(image)) return;
+                detailWarmState.add(image);
+                if (typeof image.decode === 'function' && !image.complete) {
+                    image.decode().catch(() => {});
+                } else if (typeof image.decode === 'function') {
+                    image.decode().catch(() => {});
+                }
+            });
+        }
+
+        let detailScrollRaf = 0;
+        window.addEventListener('scroll', () => {
+            if (detailScrollRaf) return;
+            detailScrollRaf = requestAnimationFrame(() => {
+                detailScrollRaf = 0;
+                const detailView = document.getElementById('view-detail');
+                if (detailView && detailView.style.display !== 'none') {
+                    prioritizeVisibleDetailImages();
+                }
+            });
+        }, { passive: true });
 
         // 不阻塞首页首屏：页面稳定后再开始后台预热。
         setTimeout(preloadDetailImagesFromHome, 1800);
