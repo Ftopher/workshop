@@ -567,7 +567,9 @@
                     'pj1/10.jpg',
                     'pj1/11.jpg',
                     'pj1/12.jpg',
-                    'pj1/13.jpg',
+                    'pj1/13-1.jpg',
+                    'pj1/13-2.jpg',
+                    'pj1/13-3.jpg',
                     'pj1/14.jpg'
                 ] : detailImageSets[id];
                 
@@ -576,7 +578,7 @@
                     const isProjectOne = id === 1;
                     const decodeMode = isProjectOne ? 'sync' : 'async';
                     const priority = isProjectOne || index === 0 ? ' fetchpriority="high"' : '';
-                    imgHtml += `<img src="./${img}" class="erp-detail-img w-full h-auto block" alt="${img}" loading="eager" decoding="${decodeMode}"${priority}>`;
+                    imgHtml += `<img src="./${img}" class="erp-detail-img w-full h-auto bg-[#E8E5DF] block" alt="${img}" loading="eager" decoding="${decodeMode}"${priority}>`;
                 });
                 heroWrapper.className = 'w-full mb-10 flex flex-col items-center justify-center';
                 heroWrapper.innerHTML = imgHtml;
@@ -674,7 +676,11 @@
 
         function preloadDetailImagesFromHome() {
             const urls = [
-                ...Array.from({ length: 14 }, (_, i) => `pj1/${i + 1}.jpg`),
+                ...Array.from({ length: 12 }, (_, i) => `pj1/${i + 1}.jpg`),
+                'pj1/13-1.jpg',
+                'pj1/13-2.jpg',
+                'pj1/13-3.jpg',
+                'pj1/14.jpg',
                 ...Array.from({ length: 47 }, (_, i) => `pj2/${String(i + 1).padStart(2, '0')}.jpg`),
                 ...Array.from({ length: 31 }, (_, i) => `pj3/${i + 49}.jpg`)
             ];
