@@ -22,15 +22,74 @@ jobs:
           p = Path('index.html')
           s = p.read_text(encoding='utf-8')
 
-          old = '''                let imgHtml = '';\n                images.forEach(img => {\n                    imgHtml += `<img src="./${img}" class="erp-detail-img w-full h-auto bg-[#E8E5DF] block" alt="${img}" loading="lazy">`;\n                });'''
-          new = '''                let imgHtml = '';\n                images.forEach((img, index) => {\n                    const loading = index === 0 ? 'eager' : 'lazy';\n                    imgHtml += `<img src="./${img}" class="erp-detail-img w-full h-auto bg-[#E8E5DF] block" alt="${img}" loading="${loading}">`;\n                });'''
-          if old not in s:\n              raise SystemExit('image rendering block not found')\n          s = s.replace(old, new, 1)
+          old = '''                let imgHtml = '';
+                images.forEach(img => {
+                    imgHtml += `<img src="./${img}" class="erp-detail-img w-full h-auto bg-[#E8E5DF] block" alt="${img}" loading="lazy">`;
+                });'''
+          new = '''                let imgHtml = '';
+                images.forEach((img, index) => {
+                    const loading = index === 0 ? 'eager' : 'lazy';
+                    imgHtml += `<img src="./${img}" class="erp-detail-img w-full h-auto bg-[#E8E5DF] block" alt="${img}" loading="${loading}">`;
+                });'''
+          if old not in s:
+              raise SystemExit('image rendering block not found')
+          s = s.replace(old, new, 1)
 
-          old2 = '''            // 详情页解除 DOM 隐藏，再触发淡入\n            detailView.style.display = 'block';\n            setTimeout(() => {\n                detailView.classList.remove('view-hidden');\n                detailView.classList.add('view-visible');\n                \n                // 返回按钮渐显\n                backLayer.classList.remove('opacity-0');\n                backLayer.classList.add('opacity-100');\n            }, 50);'''
-          new2 = '''            // 详情页先保持隐藏，等首张大图完成加载/解码后再淡入。\n            // 这样不会先看到只有 End 的短页面，再因图片加载而把 End 推下去。\n            detailView.style.display = 'block';\n\n            const revealDetail = () => {\n                detailView.classList.remove('view-hidden');\n                detailView.classList.add('view-visible');\n\n                // 返回按钮渐显\n                backLayer.classList.remove('opacity-0');\n                backLayer.classList.add('opacity-100');\n            };\n\n            const firstImage = heroWrapper.querySelector('img');\n            if (!firstImage) {\n                revealDetail();\n            } else if (firstImage.complete) {\n                if (typeof firstImage.decode === 'function') {\n                    firstImage.decode().catch(() => {}).finally(revealDetail);\n                } else {\n                    revealDetail();\n                }\n            } else {\n                let revealed = false;\n                const revealOnce = () => {\n                    if (revealed) return;\n                    revealed = true;\n                    revealDetail();\n                };\n\n                firstImage.addEventListener('load', () => {\n                    if (typeof firstImage.decode === 'function') {\n                        firstImage.decode().catch(() => {}).finally(revealOnce);\n                    } else {\n                        revealOnce();\n                    }\n                }, { once: true });\n                firstImage.addEventListener('error', revealOnce, { once: true });\n\n                // 极端网络情况下最多等 1.5 秒，避免详情页被无限卡住。\n                setTimeout(revealOnce, 1500);\n            }'''
-          if old2 not in s:\n              raise SystemExit('detail reveal block not found')\n          s = s.replace(old2, new2, 1)
+          old2 = '''            // 详情页解除 DOM 隐藏，再触发淡入
+            detailView.style.display = 'block';
+            setTimeout(() => {
+                detailView.classList.remove('view-hidden');
+                detailView.classList.add('view-visible');
+                
+                // 返回按钮渐显
+                backLayer.classList.remove('opacity-0');
+                backLayer.classList.add('opacity-100');
+            }, 50);'''
+          new2 = '''            // 详情页先保持隐藏，等首张大图完成加载/解码后再淡入。
+            // 防止图片尚未撑开页面高度时，End 短暂出现在视口中。
+            detailView.style.display = 'block';
 
-          p.write_text(s, encoding='utf-8')\n          PY
+            const revealDetail = () => {
+                detailView.classList.remove('view-hidden');
+                detailView.classList.add('view-visible');
+
+                backLayer.classList.remove('opacity-0');
+                backLayer.classList.add('opacity-100');
+            };
+
+            const firstImage = heroWrapper.querySelector('img');
+            if (!firstImage) {
+                revealDetail();
+            } else if (firstImage.complete) {
+                if (typeof firstImage.decode === 'function') {
+                    firstImage.decode().catch(() => {}).finally(revealDetail);
+                } else {
+                    revealDetail();
+                }
+            } else {
+                let revealed = false;
+                const revealOnce = () => {
+                    if (revealed) return;
+                    revealed = true;
+                    revealDetail();
+                };
+
+                firstImage.addEventListener('load', () => {
+                    if (typeof firstImage.decode === 'function') {
+                        firstImage.decode().catch(() => {}).finally(revealOnce);
+                    } else {
+                        revealOnce();
+                    }
+                }, { once: true });
+                firstImage.addEventListener('error', revealOnce, { once: true });
+                setTimeout(revealOnce, 1500);
+            }'''
+          if old2 not in s:
+              raise SystemExit('detail reveal block not found')
+          s = s.replace(old2, new2, 1)
+
+          p.write_text(s, encoding='utf-8')
+          PY
 
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
