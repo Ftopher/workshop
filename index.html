@@ -30,6 +30,7 @@
     </script>
 
     <style>
+        html { overflow-anchor: none; }
         /* -----------------------------------------
            [新增] 本地字体优先读取逻辑
            如果同文件夹下有字体文件，瞬间加载，不依赖外部网络
@@ -545,6 +546,16 @@
         }
 
         // 已经废弃了 JS 计算坐标，直接依靠更强大的 CSS Sticky 渲染，使得打开和滚动更丝滑
+        function resetPageScroll() {
+            window.scrollTo(0, 0);
+            document.documentElement.scrollTop = 0;
+            document.body.scrollTop = 0;
+        }
+
+        if ('scrollRestoration' in history) {
+            history.scrollRestoration = 'manual';
+        }
+
         function openDetail(id) {
             const project = projects.find(p => p.id === id);
             if (!project) return;
@@ -619,23 +630,21 @@
             const homeView = document.getElementById('view-home');
             const detailView = document.getElementById('view-detail');
             const backLayer = document.getElementById('detail-back-layer');
-            
-            resetPageScroll();
 
-            // 先立即移除详情页布局，避免旧详情内容暂时撑高页面，导致滚动条先小后大
+            // 立即切断详情页布局占位，避免返回首页时出现滚动条变长/变短的闪烁。
+            detailView.style.display = 'none';
             detailView.classList.remove('view-visible');
             detailView.classList.add('view-hidden');
-            detailView.style.display = 'none';
 
-            // 返回按钮直接隐藏，避免过渡期间继续占用视觉层
+            backLayer.style.visibility = 'hidden';
             backLayer.classList.remove('opacity-100');
             backLayer.classList.add('opacity-0');
-            backLayer.style.visibility = 'hidden';
-            
-            // 首页立即解除隐藏并完成淡入，避免等待造成短暂空白或闪烁
+
             homeView.style.display = 'block';
             homeView.classList.remove('view-hidden');
             homeView.classList.add('view-visible');
+
+            // 在同一帧和下一帧各校正一次，覆盖浏览器恢复历史滚动位置的时机。
             resetPageScroll();
             requestAnimationFrame(resetPageScroll);
         }
@@ -1301,7 +1310,7 @@
             const detailView = document.getElementById('view-detail');
             const backLayer = document.getElementById('detail-back-layer');
             
-            window.scrollTo({ top: 0, behavior: 'smooth' });
+            resetPageScroll();
             
             // [修复核心3] 首页淡出，并在 400ms 动画结束后彻底把 DOM 隐藏 (display: none) 防止残影
             homeView.classList.remove('view-visible');
@@ -1411,6 +1420,7 @@
                     }, 600);
                 }, 1500);
             });
+        });
 
         // =========================================
         // 自定义鼠标跟随逻辑
