@@ -28,11 +28,6 @@ jobs:
           if old_fn not in s:
               raise SystemExit('prioritize function not found')
           s = s.replace(old_fn, new_fn, 1)
-          marker = "      const firstImage = heroWrapper.querySelector('img');\n  if (!firstImage) {"
-          replacement = "      const firstImage = heroWrapper.querySelector('img');\n  // 进入详情页后立即优先解码当前视口附近图片。\n  requestAnimationFrame(() => prioritizeVisibleDetailImages(true));\n  if (!firstImage) {"
-          if marker not in s:
-              raise SystemExit('firstImage marker not found')
-          s = s.replace(marker, replacement, 1)
           p.write_text(s)
           PY
       - name: Commit patched file
