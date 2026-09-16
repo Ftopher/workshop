@@ -18,19 +18,56 @@ jobs:
         run: |
           cat > /tmp/fix.py <<'PY'
           from pathlib import Path
-          import re
           p = Path("index.html")
           s = p.read_text(encoding="utf-8")
-          old = """                images.forEach(img => {\n                    imgHtml += `<img src=\"./${img}\" class=\"erp-detail-img w-full h-auto bg-[#E8E5DF] block\" alt=\"${img}\" loading=\"lazy\">`;\n                });"""
-          new = """                images.forEach((img, index) => {\n                    const loading = index === 0 ? 'eager' : 'lazy';\n                    imgHtml += `<img src=\"./${img}\" class=\"erp-detail-img w-full h-auto bg-[#E8E5DF] block\" alt=\"${img}\" loading=\"${loading}\">`;\n                });"""
-          if old in s:
-              s = s.replace(old, new, 1)
-          pattern = re.compile(r"            detailView\\.style\\.display = 'block';\\s*setTimeout\\(\\(\\) => \\{\\s*detailView\\.classList\\.remove\\('view-hidden'\\);\\s*detailView\\.classList\\.add\\('view-visible'\\);\\s*// 返回按钮渐显\\s*backLayer\\.classList\\.remove\\('opacity-0'\\);\\s*backLayer\\.classList\\.add\\('opacity-100'\\);\\s*\\}, 50\\);", re.S)
-          replacement = """            // 先等待首张详情图加载/解码，再显示详情页，避免 End 在图片撑开高度前闪现。\n            detailView.style.display = 'block';\n\n            const revealDetail = () => {\n                detailView.classList.remove('view-hidden');\n                detailView.classList.add('view-visible');\n                backLayer.classList.remove('opacity-0');\n                backLayer.classList.add('opacity-100');\n            };\n\n            const firstImage = heroWrapper.querySelector('img');\n            if (!firstImage) {\n                revealDetail();\n            } else if (firstImage.complete) {\n                if (typeof firstImage.decode === 'function') {\n                    firstImage.decode().catch(() => {}).finally(revealDetail);\n                } else {\n                    revealDetail();\n                }\n            } else {\n                let revealed = false;\n                const revealOnce = () => {\n                    if (revealed) return;\n                    revealed = true;\n                    revealDetail();\n                };\n                firstImage.addEventListener('load', () => {\n                    if (typeof firstImage.decode === 'function') {\n                        firstImage.decode().catch(() => {}).finally(revealOnce);\n                    } else {\n                        revealOnce();\n                    }\n                }, { once: true });\n                firstImage.addEventListener('error', revealOnce, { once: true });\n                setTimeout(revealOnce, 1500);\n            }"""
-          s, n = pattern.subn(replacement, s, count=1)
-          if n == 0:
-              print('reveal block not found or already fixed')
-          p.write_text(s, encoding='utf-8')
+
+          start_marker = "            detailView.style.display = 'block';"
+          end_marker = "        }\n\n        function closeDetail()"
+          start = s.find(start_marker)
+          end = s.find(end_marker, start)
+          if start != -1 and end != -1:
+              replacement = '''            // 先等待首张详情图加载/解码，再显示详情页，避免 End 在图片撑开高度前闪现。
+            detailView.style.display = 'block';
+
+            const revealDetail = () => {
+                detailView.classList.remove('view-hidden');
+                detailView.classList.add('view-visible');
+                backLayer.classList.remove('opacity-0');
+                backLayer.classList.add('opacity-100');
+            };
+
+            const firstImage = heroWrapper.querySelector('img');
+            if (!firstImage) {
+                revealDetail();
+            } else if (firstImage.complete) {
+                if (typeof firstImage.decode === 'function') {
+                    firstImage.decode().catch(() => {}).finally(revealDetail);
+                } else {
+                    revealDetail();
+                }
+            } else {
+                let revealed = false;
+                const revealOnce = () => {
+                    if (revealed) return;
+                    revealed = true;
+                    revealDetail();
+                };
+                firstImage.addEventListener('load', () => {
+                    if (typeof firstImage.decode === 'function') {
+                        firstImage.decode().catch(() => {}).finally(revealOnce);
+                    } else {
+                        revealOnce();
+                    }
+                }, { once: true });
+                firstImage.addEventListener('error', revealOnce, { once: true });
+                setTimeout(revealOnce, 1500);
+            }
+'''
+              s = s[:start] + replacement + s[end:]
+          else:
+              print('detail reveal block already fixed or markers not found')
+
+          p.write_text(s, encoding="utf-8")
           PY
           python /tmp/fix.py
           git config user.name 'github-actions[bot]'
