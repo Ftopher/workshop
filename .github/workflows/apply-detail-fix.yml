@@ -19,11 +19,67 @@ jobs:
 
       - name: Patch index.html
         run: |
-          echo 'ZnJvbSBwYXRobGliIGltcG9ydCBQYXRoCnA9UGF0aCgiaW5kZXguaHRtbCIpCnM9cC5yZWFkX3RleHQoZW5jb2Rpbmc9InV0Zi04IikKb2xkPSIiIiAgICAgICAgICAgICAgICBpbWFnZXMuZm9yRWFjaChpbWcgPT4gewogICAgICAgICAgICAgICAgICAgIGltZ0h0bWwgKz0gYDxpbWcgc3JjPSIuLyR7aW1nfSIgY2xhc3M9ImVycC1kZXRhaWwt...'
-          | base64 -d > /tmp/fix.py
+          cat > /tmp/fix.py <<'PY'
+          from pathlib import Path
+          p=Path("index.html")
+          s=p.read_text(encoding="utf-8")
+          old="""                images.forEach(img => {
+                    imgHtml += `<img src="./${img}" class="erp-detail-img w-full h-auto bg-[#E8E5DF] block" alt="${img}" loading="lazy">`;
+                });"""
+          new="""                images.forEach((img, index) => {
+                    const loading = index === 0 ? 'eager' : 'lazy';
+                    imgHtml += `<img src="./${img}" class="erp-detail-img w-full h-auto bg-[#E8E5DF] block" alt="${img}" loading="${loading}">`;
+                });"""
+          assert old in s
+          s=s.replace(old,new,1)
+          start=s.index("            detailView.style.display = 'block';")
+          end=s.index("        }\n\n        function closeDetail()", start)
+          newblock="""            // 详情页先保持隐藏，等首张大图完成加载/解码后再淡入，避免 End 闪现。
+            detailView.style.display = 'block';
+
+            const revealDetail = () => {
+                detailView.classList.remove('view-hidden');
+                detailView.classList.add('view-visible');
+
+                backLayer.classList.remove('opacity-0');
+                backLayer.classList.add('opacity-100');
+            };
+
+            const firstImage = heroWrapper.querySelector('img');
+            if (!firstImage) {
+                revealDetail();
+            } else if (firstImage.complete) {
+                if (typeof firstImage.decode === 'function') {
+                    firstImage.decode().catch(() => {}).finally(revealDetail);
+                } else {
+                    revealDetail();
+                }
+            } else {
+                let revealed = false;
+                const revealOnce = () => {
+                    if (revealed) return;
+                    revealed = true;
+                    revealDetail();
+                };
+
+                firstImage.addEventListener('load', () => {
+                    if (typeof firstImage.decode === 'function') {
+                        firstImage.decode().catch(() => {}).finally(revealOnce);
+                    } else {
+                        revealOnce();
+                    }
+                }, { once: true });
+                firstImage.addEventListener('error', revealOnce, { once: true });
+                setTimeout(revealOnce, 1500);
+            }
+
+"""
+          s=s[:start]+newblock+s[end:]
+          p.write_text(s,encoding="utf-8")
+          PY
           python /tmp/fix.py
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git add index.html
-          git commit -m 'Fix detail page image flash'
+          git commit -m 'Fix detail page image flash' || exit 0
           git push
