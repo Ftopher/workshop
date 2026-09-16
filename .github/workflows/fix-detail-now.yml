@@ -12,22 +12,23 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
       - name: Patch index.html
         run: |
-          cat > /tmp/fix.py <<'PY'
+          python - <<'PY'
           from pathlib import Path
-          p = Path("index.html")
-          s = p.read_text(encoding="utf-8")
-
-          marker = "            // 详情页解除 DOM 隐藏，再触发淡入"
-          end_marker = "        function closeDetail()"
-          start = s.find(marker)
-          end = s.find(end_marker, start)
-
-          if start >= 0 and end > start:
-              new_block = '''            // 详情页先保持隐藏，等首张大图完成加载/解码后再淡入，避免 End 闪现。
+          p=Path('index.html')
+          s=p.read_text(encoding='utf-8')
+          old="""            // 详情页解除 DOM 隐藏，再触发淡入
+            detailView.style.display = 'block';
+            setTimeout(() => {
+                detailView.classList.remove('view-hidden');
+                detailView.classList.add('view-visible');
+                
+                // 返回按钮渐显
+                backLayer.classList.remove('opacity-0');
+                backLayer.classList.add('opacity-100');
+            }, 50);"""
+          new="""            // 详情页先保持隐藏，等首张大图完成加载/解码后再淡入，避免 End 闪现。
             detailView.style.display = 'block';
 
             const revealDetail = () => {
@@ -62,16 +63,11 @@ jobs:
                 }, { once: true });
                 firstImage.addEventListener('error', revealOnce, { once: true });
                 setTimeout(revealOnce, 1500);
-            }
-
-'''
-              s = s[:start] + new_block + s[end:]
-              p.write_text(s, encoding="utf-8")
-              print("detail reveal patched")
-          else:
-              print("detail reveal already patched or marker missing")
+            }"""
+          if old not in s:
+              raise SystemExit('target block not found')
+          p.write_text(s.replace(old,new,1),encoding='utf-8')
           PY
-          python /tmp/fix.py
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git add index.html
