@@ -573,7 +573,10 @@
                 
                 let imgHtml = '';
                 images.forEach((img, index) => {
-                    imgHtml += `<img src="./${img}" class="erp-detail-img w-full h-auto bg-[#E8E5DF] block" alt="${img}" loading="eager" decoding="async"${index === 0 ? ' fetchpriority="high"' : ''}>`;
+                    const isProjectOne = id === 1;
+                    const decodeMode = isProjectOne ? 'sync' : 'async';
+                    const priority = isProjectOne || index === 0 ? ' fetchpriority="high"' : '';
+                    imgHtml += `<img src="./${img}" class="erp-detail-img w-full h-auto block" alt="${img}" loading="eager" decoding="${decodeMode}"${priority}>`;
                 });
                 heroWrapper.className = 'w-full mb-10 flex flex-col items-center justify-center';
                 heroWrapper.innerHTML = imgHtml;
