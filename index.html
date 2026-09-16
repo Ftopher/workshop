@@ -30,6 +30,7 @@
     </script>
 
     <style>
+        html { overflow-anchor: none; }
         /* -----------------------------------------
            [新增] 本地字体优先读取逻辑
            如果同文件夹下有字体文件，瞬间加载，不依赖外部网络
@@ -534,6 +535,16 @@
         }
 
         // 已经废弃了 JS 计算坐标，直接依靠更强大的 CSS Sticky 渲染，使得打开和滚动更丝滑
+        function resetPageScroll() {
+            window.scrollTo(0, 0);
+            document.documentElement.scrollTop = 0;
+            document.body.scrollTop = 0;
+        }
+
+        if ('scrollRestoration' in history) {
+            history.scrollRestoration = 'manual';
+        }
+
         function openDetail(id) {
             const project = projects.find(p => p.id === id);
             if (!project) return;
@@ -608,29 +619,21 @@
             const homeView = document.getElementById('view-home');
             const detailView = document.getElementById('view-detail');
             const backLayer = document.getElementById('detail-back-layer');
-            
-            window.scrollTo({ top: 0, behavior: 'smooth' });
 
-            // 详情页淡出
+            detailView.style.display = 'none';
             detailView.classList.remove('view-visible');
             detailView.classList.add('view-hidden');
-            
-            // 返回按钮渐隐
+
+            backLayer.style.visibility = 'hidden';
             backLayer.classList.remove('opacity-100');
             backLayer.classList.add('opacity-0');
-            
-            // [修复核心4] 详情页与按钮淡出 400ms 后，彻底隐藏 DOM
-            setTimeout(() => { 
-                backLayer.style.visibility = 'hidden'; 
-                detailView.style.display = 'none';
-            }, 400);
-            
-            // 首页解除 DOM 隐藏，再触发淡入
+
             homeView.style.display = 'block';
-            setTimeout(() => {
-                homeView.classList.remove('view-hidden');
-                homeView.classList.add('view-visible');
-            }, 50);
+            homeView.classList.remove('view-hidden');
+            homeView.classList.add('view-visible');
+
+            resetPageScroll();
+            requestAnimationFrame(resetPageScroll);
         }
 
         renderList();
@@ -675,21 +678,22 @@
         window.addEventListener('DOMContentLoaded', () => {
             const loader = document.getElementById('page-loader');
             const app = document.getElementById('app');
+            let revealed = false;
 
-            document.fonts.ready.then(() => {
+            const revealApp = () => {
+                if (revealed) return;
+                revealed = true;
                 loader.classList.add('start-anim');
-
+                loader.classList.add('-translate-y-full');
+                app.classList.remove('opacity-0', 'translate-y-12');
+                app.classList.add('translate-y-0');
                 setTimeout(() => {
-                    loader.classList.add('-translate-y-full');
+                    loader.style.display = 'none';
+                }, 650);
+            };
 
-                    app.classList.remove('opacity-0', 'translate-y-12');
-                    app.classList.add('translate-y-0');
-
-                    setTimeout(() => {
-                        loader.style.display = 'none';
-                    }, 600);
-                }, 1500);
-            });
+            requestAnimationFrame(revealApp);
+            setTimeout(revealApp, 1800);
         });
 
         // =========================================
