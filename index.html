@@ -572,8 +572,9 @@
                 ] : detailImageSets[id];
                 
                 let imgHtml = '';
-                images.forEach(img => {
-                    imgHtml += `<img src="./${img}" class="erp-detail-img w-full h-auto bg-[#E8E5DF] block" alt="${img}" loading="lazy">`;
+                images.forEach((img, index) => {
+                    const loading = index === 0 ? 'eager' : 'lazy';
+                    imgHtml += `<img src="./${img}" class="erp-detail-img w-full h-auto bg-[#E8E5DF] block" alt="${img}" loading="${loading}">`;
                 });
                 heroWrapper.className = 'w-full mb-10 flex flex-col items-center justify-center';
                 heroWrapper.innerHTML = imgHtml;
